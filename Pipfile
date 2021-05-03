@@ -1,0 +1,18 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+streamdeck-ui = "*"
+websockets = "<9.0"
+click = "*"
+qasync = "*"
+
+[dev-packages]
+mypy = "*"
+pylint = "*"
+flake8 = "*"
+
+[requires]
+python_version = "3.8"
