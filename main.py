@@ -50,7 +50,7 @@ def _main(port: int) -> None:
     for sig in [signal.SIGINT]:
         signal.signal(sig, signal_handler)
 
-    app, main_window = ui_proxy.create_app()
+    app, main_window = ui_proxy.create_app(bridge.key_up_callback)
     loop = QEventLoop(app)
     asyncio.set_event_loop(loop)
     with loop:

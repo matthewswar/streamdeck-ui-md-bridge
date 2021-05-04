@@ -5,7 +5,7 @@ Originally copied from streamdeck_ui.gui, this module allows me to get the refer
 from functools import partial
 import logging
 import time
-from typing import Tuple
+from typing import Callable, Tuple
 
 from streamdeck_ui import api
 from streamdeck_ui.config import LOGO
@@ -42,7 +42,7 @@ from streamdeck_ui.gui import (  # noqa: F811 pylint: disable=reimported
 log = logging.getLogger(__name__)
 
 
-def create_app() -> Tuple[QApplication, MainWindow]:
+def create_app(key_up_callback: Callable[[str, int, bool], None]) -> Tuple[QApplication, MainWindow]:
     """
     Sets up the QApplication to use on the main thread without calling app.exec_()
     """
@@ -79,7 +79,7 @@ def create_app() -> Tuple[QApplication, MainWindow]:
     ui.removeButton.clicked.connect(partial(remove_image, main_window))
     ui.settingsButton.clicked.connect(partial(show_settings, main_window))
 
-    api.streamdesk_keys.key_pressed.connect(handle_keypress)
+    api.streamdesk_keys.key_pressed.connect(partial(_extended_handle_key_press, key_up_callback))
 
     items = api.open_decks().items()
     if len(items) == 0:
@@ -114,3 +114,15 @@ def create_app() -> Tuple[QApplication, MainWindow]:
     tray.show()
 
     return (app, main_window)
+
+
+def _extended_handle_key_press(
+    key_up_callback: Callable[[str, int, bool], None],
+    deck_id: str,
+    key: int,
+    state: bool
+) -> None:
+    if state:
+        handle_keypress(deck_id, key, state)
+    else:
+        key_up_callback(deck_id, key, state)

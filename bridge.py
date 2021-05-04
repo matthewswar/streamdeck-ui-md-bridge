@@ -46,7 +46,6 @@ def init(bridge_file: str, output_queue: Queue, ui: Ui_MainWindow) -> None:
             _deck_id = deck_ids[0]
 
     log.info(f'Loaded with deck ID: {_deck_id}')
-    _load_md_buttons()
 
 
 def analyze_md_message(message: Union[str, bytes]) -> str:
@@ -85,7 +84,22 @@ def next_message() -> Optional[str]:
     return _output_queue.get(block=False)  # type: ignore
 
 
-def _load_md_buttons() -> None:
+def key_up_callback(deck_id: str, key: int, state: bool) -> None:
+    """
+    Handles key up events by sending the necessary information to the output queue.
+    """
+    if state:
+        log.warning('Released callback called while the state boolean is true')
+    button_state = deck_api._button_state(deck_id, FOUNDRY_PAGE, key)  # pylint: disable=protected-access
+    md_info = button_state.get('material_deck')
+    if md_info:
+        _write_message(json.dumps(_create_command_payload(md_info['init_data']['action'], 'keyUp', key)))
+
+
+def load_md_buttons() -> None:
+    """
+    Reads the buttons configured for use with MaterialDeck and sends willAppear events.
+    """
     if _deck_id not in deck_api.state:
         return
 
@@ -95,37 +109,20 @@ def _load_md_buttons() -> None:
             if 'material_deck' in button_info:
                 deck_info = button_info['material_deck']
                 if 'init_data' in deck_info:
-                    column = button_index % DECK_COLUMNS
-                    row = math.floor(button_index / DECK_COLUMNS)
                     init_data = copy.deepcopy(deck_info['init_data'])
                     init_data['context'] = button_index
                     init_data['size'] = {'columns': DECK_COLUMNS, 'rows': DECK_ROWS}
                     payload = init_data['payload']
                     payload['coordinates'] = {
-                        'column': column,
-                        'row': row,
+                        'column': button_index % DECK_COLUMNS,
+                        'row': math.floor(button_index / DECK_COLUMNS),
                     }
                     settings = payload['settings']
                     settings['soundNr'] = button_index + 1
                     init_data['deviceIteration'] = 0
                     init_data['device'] = _deck_id
 
-                    command = {
-                        'action': init_data['action'],
-                        'event': 'keyDown',
-                        'context': button_index,
-                        'payload': {
-                            'coordinates': {
-                                'column': column,
-                                'row': row,
-                            },
-                            'settings': {
-                                'soundNr': button_index + 1
-                            },
-                            'deviceIteration': 0,
-                            'device': _deck_id,
-                        },
-                    }
+                    command = _create_command_payload(init_data['action'], 'keyDown', button_index)
                     deck_api.set_button_command(
                         _deck_id,
                         FOUNDRY_PAGE,
@@ -135,6 +132,26 @@ def _load_md_buttons() -> None:
                     _write_message(json.dumps(init_data))
 
 
+def _create_command_payload(action: str, event: str, button_index: int) -> dict:
+    math.floor(button_index / DECK_COLUMNS)
+    return {
+        'action': action,
+        'event': event,
+        'context': button_index,
+        'payload': {
+            'coordinates': {
+                'column': button_index % DECK_COLUMNS,
+                'row': math.floor(button_index / DECK_COLUMNS),
+            },
+            'settings': {
+                'soundNr': button_index + 1
+            },
+            'deviceIteration': 0,
+            'device': _deck_id,
+        },
+    }
+
+
 def _write_message(message: str) -> None:
     global _output_queue  # pylint: disable=global-statement,invalid-name
     _output_queue.put(message)
@@ -142,13 +159,15 @@ def _write_message(message: str) -> None:
 
 def _handle_set_tile(data: dict) -> None:
     payload = data['payload']
-    deck_api.set_button_text(_deck_id, FOUNDRY_PAGE, data['context'], payload['title'])
+    title = payload.get('title')
+    if title != deck_api.get_button_text(_deck_id, FOUNDRY_PAGE, data['context']):
+        deck_api.set_button_text(_deck_id, FOUNDRY_PAGE, data['context'], title)
 
 
 def _handle_set_buffer_image(data: dict) -> None:
     payload = data['payload']
     cache_path = _get_path_from_image_id(payload['id'])
-    if Path(cache_path).exists():
+    if cache_path != deck_api.get_button_icon(_deck_id, FOUNDRY_PAGE, data['context']) and Path(cache_path).exists():
         deck_api.set_button_icon(_deck_id, FOUNDRY_PAGE, data['context'], cache_path)
 
 
@@ -156,7 +175,8 @@ def _handle_set_image(data: dict) -> None:
     payload = data['payload']
     image_id = payload['id']
     cache_path = _get_path_from_image_id(image_id)
-    if not Path(cache_path).exists():
+    if cache_path != deck_api.get_button_icon(_deck_id, FOUNDRY_PAGE, data['context']) and \
+            not Path(cache_path).exists():
         Path(Path(cache_path).parent).mkdir(parents=True, exist_ok=True)
         with request.urlopen(payload['image']) as response:
             with open(cache_path, 'wb') as image_file:

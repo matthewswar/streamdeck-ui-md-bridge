@@ -42,6 +42,7 @@ async def _listener(socket: websockets.WebSocketServerProtocol, _path: str) -> N
     Listens for commands coming from MaterialDeck.
     """
     log.info(f'Connection received: {socket.remote_address}')
+    bridge.load_md_buttons()
     try:
         while not _stop_event.is_set():
             try:
