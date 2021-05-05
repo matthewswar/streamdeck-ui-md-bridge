@@ -5,9 +5,10 @@ Originally copied from streamdeck_ui.gui, this module allows me to get the refer
 from functools import partial
 import logging
 import time
-from typing import Callable, Tuple
+from typing import Callable, List, Optional, Tuple
 
-from streamdeck_ui import api
+from PySide2.QtWidgets import QComboBox, QFormLayout, QLabel  # pylint: disable=no-name-in-module
+from streamdeck_ui import api, gui
 from streamdeck_ui.config import LOGO
 from streamdeck_ui.gui import (  # noqa: F811 pylint: disable=reimported
     build_device,
@@ -16,6 +17,7 @@ from streamdeck_ui.gui import (  # noqa: F811 pylint: disable=reimported
     dim_all_displays,
     Dimmer,
     dimmers,
+    DraggableButton,
     export_config,
     handle_keypress,
     import_config,
@@ -32,6 +34,7 @@ from streamdeck_ui.gui import (  # noqa: F811 pylint: disable=reimported
     show_settings,
     sync,
     remove_image,
+    Ui_MainWindow,
     update_button_command,
     update_button_keys,
     update_button_write,
@@ -39,13 +42,22 @@ from streamdeck_ui.gui import (  # noqa: F811 pylint: disable=reimported
     update_switch_page
 )
 
+_MATERIAL_DECK_ACTIONS = ['', 'macro', 'soundboard']
+
 log = logging.getLogger(__name__)
+_get_md_action_value: Callable[[int], str]
 
 
-def create_app(key_up_callback: Callable[[str, int, bool], None]) -> Tuple[QApplication, MainWindow]:
+def create_app(
+    get_md_action_value: Callable[[int], str],
+    key_up_callback: Optional[Callable[[str, int, bool], None]] = None,
+    md_action_callback: Optional[Callable[[int, str], None]] = None,
+) -> Tuple[QApplication, MainWindow]:
     """
     Sets up the QApplication to use on the main thread without calling app.exec_()
     """
+    global _get_md_action_value  # pylint: disable=global-statement,invalid-name
+    _get_md_action_value = get_md_action_value
     app = QApplication([])
 
     logo = QIcon(LOGO)
@@ -78,6 +90,18 @@ def create_app(key_up_callback: Callable[[str, int, bool], None]) -> Tuple[QAppl
     ui.imageButton.clicked.connect(partial(select_image, main_window))
     ui.removeButton.clicked.connect(partial(remove_image, main_window))
     ui.settingsButton.clicked.connect(partial(show_settings, main_window))
+
+    md_label = QLabel(ui.groupBox)
+    md_label.setObjectName('md_label')
+    md_label.setText('MD Action:')
+    ui.formLayout.setWidget(7, QFormLayout.LabelRole, md_label)
+
+    md_action = QComboBox(ui.groupBox)
+    md_action.setObjectName('md_action')
+    md_action.addItems(_MATERIAL_DECK_ACTIONS)
+    md_action.currentIndexChanged.connect(partial(_md_action_changed, md_action_callback))
+    ui.formLayout.setWidget(7, QFormLayout.FieldRole, md_action)
+    ui.md_action = md_action
 
     api.streamdesk_keys.key_pressed.connect(partial(_extended_handle_key_press, key_up_callback))
 
@@ -117,12 +141,38 @@ def create_app(key_up_callback: Callable[[str, int, bool], None]) -> Tuple[QAppl
 
 
 def _extended_handle_key_press(
-    key_up_callback: Callable[[str, int, bool], None],
+    key_up_callback: Optional[Callable[[str, int, bool], None]],
     deck_id: str,
     key: int,
     state: bool
 ) -> None:
     if state:
         handle_keypress(deck_id, key, state)
-    else:
+    elif key_up_callback:
         key_up_callback(deck_id, key, state)
+
+
+def _md_action_changed(
+    md_action_callback: Optional[Callable[[int, str], None]],
+    action_index: int
+) -> None:
+    if md_action_callback:
+        md_action_callback(gui.selected_button.index, _MATERIAL_DECK_ACTIONS[action_index])
+
+
+_original_button_clicked = gui.button_clicked
+
+
+def _button_clicked_override(
+    ui: Ui_MainWindow,
+    clicked_button: DraggableButton,
+    buttons: List[DraggableButton]
+) -> None:
+    global _get_md_action_value  # pylint: disable=global-statement,invalid-name
+    _original_button_clicked(ui, clicked_button, buttons)
+    button_id = gui.selected_button.index
+    md_action_value = _get_md_action_value(button_id)
+    ui.md_action.setCurrentIndex(_MATERIAL_DECK_ACTIONS.index(md_action_value))
+
+
+gui.button_clicked = _button_clicked_override

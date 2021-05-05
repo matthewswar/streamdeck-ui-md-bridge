@@ -19,6 +19,7 @@ INITIALIZE_PAYLOAD = json.dumps({'source': 'SD', 'type': 'version', 'version': '
 CONFIG_PATH = f'{Path.home()}/.stream-deck-ui-md-bridge'
 IMAGE_CACHE_PATH = f'{CONFIG_PATH}/image_cache'
 DECK_CONFIG_FILE = f'{Path.home()}/.streamdeck_ui.json'
+MATERIAL_FOUNDRY_IMAGE = f'{CONFIG_PATH}/MaterialFoundry512x512.png'
 FOUNDRY_PAGE = 0
 DECK_COLUMNS = 8
 DECK_ROWS = 4
@@ -46,6 +47,17 @@ def init(bridge_file: str, output_queue: Queue, ui: Ui_MainWindow) -> None:
             _deck_id = deck_ids[0]
 
     log.info(f'Loaded with deck ID: {_deck_id}')
+
+
+def disconnect() -> None:
+    """
+    Replaces all buttons configured with Material Foundry with placeholders.
+    """
+    button_states = deck_api.state[_deck_id]['buttons']
+    for _page, buttons in button_states.items():
+        for button_index, button_info in buttons.items():
+            if 'material_deck' in button_info:
+                _reset_button(button_index, MATERIAL_FOUNDRY_IMAGE)
 
 
 def analyze_md_message(message: Union[str, bytes]) -> str:
@@ -96,6 +108,61 @@ def key_up_callback(deck_id: str, key: int, state: bool) -> None:
         _write_message(json.dumps(_create_command_payload(md_info['init_data']['action'], 'keyUp', key)))
 
 
+def md_action_changed(button_index: int, action: str) -> None:
+    """
+    Handles changing the type of action Material Deck listens for.
+    """
+    global _ui  # pylint: disable=global-statement,invalid-name
+    button_state = deck_api._button_state(_deck_id, FOUNDRY_PAGE, button_index)  # pylint: disable=protected-access
+    if action:
+        deck_info: dict = button_state.setdefault('material_deck', {})
+        init_data = deck_info.setdefault('init_data', {
+            'event': 'willAppear',
+            'payload': {
+                'settings': {
+                    'displayName': True,
+                    'displayIcon': True,
+                },
+            },
+        })
+        init_data['action'] = action
+        command = _create_command_payload(action, 'keyDown', button_index)
+        deck_api.set_button_command(
+            _deck_id,
+            FOUNDRY_PAGE,
+            button_index,
+            f"{CONFIG_PATH}/pipe_writer.sh '{_bridge_file}' '{json.dumps(command)}'"
+        )
+
+        _write_message(json.dumps(_create_will_appear_payload(deck_info, button_index)))
+    elif 'material_deck' in button_state:
+        previous_action = button_state['material_deck'].get('init_data', {}).get('action', '')
+        del button_state['material_deck']
+        _reset_button(button_index, '')
+        _write_message(json.dumps({
+            'event': 'willDisappear',
+            'action': previous_action,
+            'payload': {
+                'coordinates': {
+                    'column': button_index % DECK_COLUMNS,
+                    'row': math.floor(button_index / DECK_COLUMNS),
+                },
+            },
+            'context': button_index,
+            'device': _deck_id,
+        }))
+    deck_api.export_config(DECK_CONFIG_FILE)
+    deck_gui.redraw_buttons(_ui)
+
+
+def get_md_action(button_index: int) -> str:
+    """
+    Returns the md_action for the specified button.
+    """
+    button_state = deck_api._button_state(_deck_id, FOUNDRY_PAGE, button_index)  # pylint: disable=protected-access
+    return button_state.get('material_deck', {}).get('init_data', {}).get('action', '')  # type: ignore
+
+
 def load_md_buttons() -> None:
     """
     Reads the buttons configured for use with MaterialDeck and sends willAppear events.
@@ -109,19 +176,7 @@ def load_md_buttons() -> None:
             if 'material_deck' in button_info:
                 deck_info = button_info['material_deck']
                 if 'init_data' in deck_info:
-                    init_data = copy.deepcopy(deck_info['init_data'])
-                    init_data['context'] = button_index
-                    init_data['size'] = {'columns': DECK_COLUMNS, 'rows': DECK_ROWS}
-                    payload = init_data['payload']
-                    payload['coordinates'] = {
-                        'column': button_index % DECK_COLUMNS,
-                        'row': math.floor(button_index / DECK_COLUMNS),
-                    }
-                    settings = payload['settings']
-                    settings['soundNr'] = button_index + 1
-                    init_data['deviceIteration'] = 0
-                    init_data['device'] = _deck_id
-
+                    init_data = _create_will_appear_payload(deck_info, button_index)
                     command = _create_command_payload(init_data['action'], 'keyDown', button_index)
                     deck_api.set_button_command(
                         _deck_id,
@@ -132,8 +187,27 @@ def load_md_buttons() -> None:
                     _write_message(json.dumps(init_data))
 
 
+def _create_will_appear_payload(deck_info: dict, button_index: int) -> dict:
+    init_data = copy.deepcopy(deck_info['init_data'])
+    init_data['context'] = button_index
+    init_data['size'] = {'columns': DECK_COLUMNS, 'rows': DECK_ROWS}
+    payload = init_data['payload']
+    payload['coordinates'] = {
+        'column': button_index % DECK_COLUMNS,
+        'row': math.floor(button_index / DECK_COLUMNS),
+    }
+    action = init_data['action']
+    settings = payload['settings']
+    action_settings = _get_settings_for_action(action, button_index)
+    for setting_name, setting_value in action_settings.items():
+        settings[setting_name] = setting_value
+    init_data['deviceIteration'] = 0
+    init_data['device'] = _deck_id
+
+    return init_data  # type: ignore
+
+
 def _create_command_payload(action: str, event: str, button_index: int) -> dict:
-    math.floor(button_index / DECK_COLUMNS)
     return {
         'action': action,
         'event': event,
@@ -143,13 +217,28 @@ def _create_command_payload(action: str, event: str, button_index: int) -> dict:
                 'column': button_index % DECK_COLUMNS,
                 'row': math.floor(button_index / DECK_COLUMNS),
             },
-            'settings': {
-                'soundNr': button_index + 1
-            },
+            'settings': _get_settings_for_action(action, button_index),
             'deviceIteration': 0,
             'device': _deck_id,
         },
     }
+
+
+def _get_settings_for_action(action: str, button_index: int) -> dict:
+    action_settings: dict = {}
+    if action == 'soundboard':
+        action_settings['soundNr'] = button_index + 1
+    if action == 'macro':
+        action_settings['macroMode'] = 'macroBoard'
+        action_settings['macroNumber'] = button_index + 1
+
+    return action_settings
+
+
+def _reset_button(button_index: int, image_path: str) -> None:
+    deck_api.set_button_text(_deck_id, FOUNDRY_PAGE, button_index, '')
+    deck_api.set_button_command(_deck_id, FOUNDRY_PAGE, button_index, '')
+    deck_api.set_button_icon(_deck_id, FOUNDRY_PAGE, button_index, image_path)
 
 
 def _write_message(message: str) -> None:

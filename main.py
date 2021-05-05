@@ -30,6 +30,7 @@ def signal_handler(sig_num: int, _frame: FrameType) -> None:
     """
     md_listener.stop()
     deck_listener.stop()
+    bridge.disconnect()
     log.info(f'Handled signal {signal.strsignal(sig_num)}')
 
 
@@ -50,7 +51,7 @@ def _main(port: int) -> None:
     for sig in [signal.SIGINT]:
         signal.signal(sig, signal_handler)
 
-    app, main_window = ui_proxy.create_app(bridge.key_up_callback)
+    app, main_window = ui_proxy.create_app(bridge.get_md_action, bridge.key_up_callback, bridge.md_action_changed)
     loop = QEventLoop(app)
     asyncio.set_event_loop(loop)
     with loop:
