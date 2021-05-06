@@ -5,6 +5,7 @@ import asyncio
 import json
 import logging
 import threading
+from typing import Optional
 import websockets
 from websockets.exceptions import ConnectionClosed
 
@@ -12,6 +13,7 @@ import bridge
 
 log = logging.getLogger(__name__)
 _stop_event = threading.Event()
+_disconnect_timer: Optional[threading.Timer] = None
 _server: websockets.WebSocketServer
 
 
@@ -31,9 +33,15 @@ def stop() -> None:
     """
     Stops listening to MaterialDeck.
     """
-    global _server  # pylint: disable=global-statement,invalid-name
+    global _server, _disconnect_timer  # pylint: disable=global-statement,invalid-name
     if _server:
         _server.close()
+
+    if _disconnect_timer and _disconnect_timer.is_alive():
+        _disconnect_timer.cancel()
+        _disconnect_timer = None
+
+    bridge.disconnect()
     _stop_event.set()
 
 
@@ -41,6 +49,10 @@ async def _listener(socket: websockets.WebSocketServerProtocol, _path: str) -> N
     """
     Listens for commands coming from MaterialDeck.
     """
+    global _disconnect_timer  # pylint: disable=global-statement,invalid-name
+    if _disconnect_timer and _disconnect_timer.is_alive():
+        _disconnect_timer.cancel()
+        _disconnect_timer = None
     log.info(f'Connection received: {socket.remote_address}')
     bridge.load_md_buttons()
     try:
@@ -62,3 +74,8 @@ async def _listener(socket: websockets.WebSocketServerProtocol, _path: str) -> N
                 await socket.send(response)
     except ConnectionClosed:
         log.info(f'Shutting down websocket with {socket.remote_address}')
+        if _disconnect_timer and _disconnect_timer.is_alive():
+            _disconnect_timer.cancel()
+            _disconnect_timer = None
+        _disconnect_timer = threading.Timer(60.0, bridge.disconnect)
+        _disconnect_timer.start()

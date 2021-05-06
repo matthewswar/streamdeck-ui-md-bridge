@@ -30,7 +30,6 @@ def signal_handler(sig_num: int, _frame: FrameType) -> None:
     """
     md_listener.stop()
     deck_listener.stop()
-    bridge.disconnect()
     log.info(f'Handled signal {signal.strsignal(sig_num)}')
 
 

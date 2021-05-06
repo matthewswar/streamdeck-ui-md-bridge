@@ -159,11 +159,11 @@ def get_md_action(button_index: int) -> str:
     """
     Returns the md_action for the specified button.
     """
-    button_state = deck_api._button_state(
+    button_state = deck_api._button_state(  # pylint: disable=protected-access
         _deck_id,
         deck_api.get_page(_deck_id),
         button_index
-    )  # pylint: disable=protected-access
+    )
     return button_state.get('material_deck', {}).get('init_data', {}).get('action', '')  # type: ignore
 
 
