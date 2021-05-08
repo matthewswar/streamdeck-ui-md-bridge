@@ -7,7 +7,7 @@ import logging
 import time
 from typing import Callable, List, Optional, Tuple
 
-from PySide2.QtWidgets import QComboBox, QFormLayout, QLabel  # pylint: disable=no-name-in-module
+from PySide2.QtWidgets import QComboBox, QFormLayout, QLabel, QPlainTextEdit  # pylint: disable=no-name-in-module
 from streamdeck_ui import api, gui
 from streamdeck_ui.config import LOGO
 from streamdeck_ui.gui import (  # noqa: F811 pylint: disable=reimported
@@ -46,18 +46,22 @@ _MATERIAL_DECK_ACTIONS = ['', 'macro', 'soundboard']
 
 log = logging.getLogger(__name__)
 _get_md_action_value: Callable[[int], str]
+_get_md_data_value: Callable[[int], str]
 
 
 def create_app(
     get_md_action_value: Callable[[int], str],
+    get_md_data_value: Callable[[int], str],
     key_up_callback: Optional[Callable[[str, int, bool], None]] = None,
     md_action_callback: Optional[Callable[[int, str], None]] = None,
+    md_data_callback: Optional[Callable[[int, str], None]] = None,
 ) -> Tuple[QApplication, MainWindow]:
     """
     Sets up the QApplication to use on the main thread without calling app.exec_()
     """
-    global _get_md_action_value  # pylint: disable=global-statement,invalid-name
+    global _get_md_action_value, _get_md_data_value  # pylint: disable=global-statement,invalid-name
     _get_md_action_value = get_md_action_value
+    _get_md_data_value = get_md_data_value
     app = QApplication([])
 
     logo = QIcon(LOGO)
@@ -102,6 +106,21 @@ def create_app(
     md_action.currentIndexChanged.connect(partial(_md_action_changed, md_action_callback))
     ui.formLayout.setWidget(7, QFormLayout.FieldRole, md_action)
     ui.md_action = md_action
+
+    md_data_label = QLabel(ui.groupBox)
+    md_data_label.setObjectName('md_data_label')
+    md_data_label.setText('MD Data:')
+    ui.formLayout.setWidget(8, QFormLayout.LabelRole, md_data_label)
+
+    text_timer = QTimer()
+    text_timer.setSingleShot(True)
+    text_timer.timeout.connect(partial(_md_data_changed, ui, md_data_callback))
+
+    md_data = QPlainTextEdit(ui.groupBox)
+    md_data.setObjectName('md_data')
+    md_data.textChanged.connect(lambda: text_timer.start(500))
+    ui.formLayout.setWidget(8, QFormLayout.FieldRole, md_data)
+    ui.md_data = md_data
 
     api.streamdesk_keys.key_pressed.connect(partial(_extended_handle_key_press, key_up_callback))
 
@@ -160,6 +179,14 @@ def _md_action_changed(
         md_action_callback(gui.selected_button.index, _MATERIAL_DECK_ACTIONS[action_index])
 
 
+def _md_data_changed(
+    ui: Ui_MainWindow,
+    md_data_callback: Optional[Callable[[int, str], None]],
+) -> None:
+    if md_data_callback:
+        md_data_callback(gui.selected_button.index, ui.md_data.toPlainText())
+
+
 _original_button_clicked = gui.button_clicked
 
 
@@ -168,11 +195,15 @@ def _button_clicked_override(
     clicked_button: DraggableButton,
     buttons: List[DraggableButton]
 ) -> None:
-    global _get_md_action_value  # pylint: disable=global-statement,invalid-name
+    global _get_md_action_value, _get_md_data_value  # pylint: disable=global-statement,invalid-name
     _original_button_clicked(ui, clicked_button, buttons)
     button_id = gui.selected_button.index
+
     md_action_value = _get_md_action_value(button_id)
     ui.md_action.setCurrentIndex(_MATERIAL_DECK_ACTIONS.index(md_action_value))
+
+    md_data_value = _get_md_data_value(button_id)
+    ui.md_data.setPlainText(md_data_value)
 
 
 gui.button_clicked = _button_clicked_override
