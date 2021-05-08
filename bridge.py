@@ -146,10 +146,10 @@ def md_data_changed(button_index: int, text: str) -> None:
     page = deck_api.get_page(_deck_id)
     button_state = deck_api._button_state(_deck_id, page, button_index)  # pylint: disable=protected-access
 
-    deck_info = button_state.setdefault('material_deck', {})
-    deck_info['action_settings'] = json.loads(text)
-
-    _write_message(json.dumps(_create_will_display_payload(deck_info, button_index, page)))
+    deck_info = button_state.get('material_deck', {})
+    if deck_info:
+        deck_info['action_settings'] = json.loads(text)
+        _write_message(json.dumps(_create_will_display_payload(deck_info, button_index, page)))
 
 
 @_init_required()
@@ -172,6 +172,8 @@ def md_action_changed(button_index: int, action: str) -> None:
                 'settings': {
                     'displayName': True,
                     'displayIcon': True,
+                    'displaySceneIcon': True,
+                    'displaySceneName': True,
                 },
             },
         })
@@ -228,7 +230,12 @@ def get_md_data(button_index: int) -> str:
         deck_api.get_page(_deck_id),
         button_index
     )
-    return json.dumps(button_state.setdefault('material_deck', {}).setdefault('action_settings', {}))
+
+    deck_info = button_state.get('material_deck')
+    if deck_info:
+        return json.dumps(deck_info.setdefault('action_settings', {}))
+
+    return ''
 
 
 def load_md_buttons(page: Optional[int] = None) -> None:
@@ -336,9 +343,12 @@ def _get_settings_for_action(action: str, button_index: int, page: int) -> dict:
     if not action_settings:
         if action == 'soundboard':
             action_settings['soundNr'] = _to_context(button_index + 1, page)
-        if action == 'macro':
+        elif action == 'macro':
             action_settings['macroMode'] = 'macroBoard'
             action_settings['macroNumber'] = _to_context(button_index + 1, page)
+        elif action == 'scene':
+            action_settings['sceneFunction'] = 'any'
+            action_settings['sceneName'] = ''
 
     return action_settings
 

@@ -42,7 +42,7 @@ from streamdeck_ui.gui import (  # noqa: F811 pylint: disable=reimported
     update_switch_page
 )
 
-_MATERIAL_DECK_ACTIONS = ['', 'macro', 'soundboard']
+_MATERIAL_DECK_ACTIONS = ['', 'macro', 'soundboard', 'scene']
 
 log = logging.getLogger(__name__)
 _get_md_action_value: Callable[[int], str]
