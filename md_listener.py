@@ -56,22 +56,10 @@ async def _listener(socket: websockets.WebSocketServerProtocol, _path: str) -> N
     log.info(f'Connection received: {socket.remote_address}')
     bridge.load_md_buttons()
     try:
-        while not _stop_event.is_set():
-            try:
-                message = await asyncio.wait_for(socket.recv(), timeout=2.0)
-            except asyncio.TimeoutError:
-                next_message = bridge.next_message()
-                while next_message:
-                    log.info(next_message)
-                    await socket.send(next_message)
-                    next_message = bridge.next_message()
-                await socket.send(json.dumps({'T': 'P'}))
-                continue
-
-            response = bridge.analyze_md_message(message)
-            if response:
-                log.info(response)
-                await socket.send(response)
+        await asyncio.gather(
+            _listen_to_socket(socket),
+            _send_messages(socket),
+        )
     except ConnectionClosed:
         log.info(f'Shutting down websocket with {socket.remote_address}')
         if _disconnect_timer and _disconnect_timer.is_alive():
@@ -79,3 +67,27 @@ async def _listener(socket: websockets.WebSocketServerProtocol, _path: str) -> N
             _disconnect_timer = None
         _disconnect_timer = threading.Timer(60.0, bridge.disconnect)
         _disconnect_timer.start()
+
+
+async def _listen_to_socket(socket: websockets.WebSocketServerProtocol) -> None:
+    while not _stop_event.is_set():
+        try:
+            message = await asyncio.wait_for(socket.recv(), timeout=2.0)
+        except asyncio.TimeoutError:
+            await socket.send(json.dumps({'T': 'P'}))
+            continue
+
+        response = bridge.analyze_md_message(message)
+        if response:
+            log.info(response)
+            await socket.send(response)
+
+
+async def _send_messages(socket: websockets.WebSocketServerProtocol) -> None:
+    while not _stop_event.is_set():
+        next_message = await bridge.next_message()
+        if next_message:
+            log.info(next_message)
+            await socket.send(next_message)
+        else:
+            await asyncio.sleep(0.5)

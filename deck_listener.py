@@ -2,10 +2,10 @@
 Listens to events coming from the El Gato Streamdeck.
 """
 
+import asyncio
 import errno
 import logging
 import os
-from queue import Queue
 import threading
 
 BUFFER_SIZE = 1024
@@ -15,7 +15,7 @@ log = logging.getLogger(__name__)
 _stop_event = threading.Event()
 
 
-def start(output_queue: Queue, pipe_path: str) -> None:
+def start(output_queue: asyncio.Queue, pipe_path: str) -> None:
     """
     Starts listening to the Streamdeck.
     """
@@ -33,7 +33,7 @@ def start(output_queue: Queue, pipe_path: str) -> None:
             parsed_line = _parse_piped_line(line)
             if parsed_line:
                 log.info(parsed_line)
-                output_queue.put(parsed_line)
+                output_queue.put_nowait(parsed_line)
         except OSError as err:
             if err.errno != errno.EWOULDBLOCK:
                 raise

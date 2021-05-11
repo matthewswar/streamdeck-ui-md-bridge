@@ -4,7 +4,6 @@ This module wraps the streamdeck-ui library to provide rudimentary functionality
 import asyncio
 from concurrent.futures.thread import ThreadPoolExecutor
 import logging
-from queue import Queue
 import signal
 import sys
 from types import FrameType
@@ -34,7 +33,7 @@ def signal_handler(sig_num: int, _frame: FrameType) -> None:
 
 
 async def _setup_listeners(port: int, ui: Ui_MainWindow) -> None:
-    output_queue: Queue = Queue(1024)
+    output_queue: asyncio.Queue = asyncio.Queue(1024)
     with ThreadPoolExecutor(3) as executor:
         loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
         await asyncio.wait([

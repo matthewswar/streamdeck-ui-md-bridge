@@ -2,12 +2,12 @@
 Provides direct communication between the El Gato Streamdeck and the Material Deck module.
 """
 
+import asyncio
 import copy
 import json
 import logging
 from pathlib import Path
 import math
-from queue import Queue
 from typing import Callable, Optional, Union
 from urllib import request
 
@@ -26,7 +26,7 @@ DECK_ROWS = 4
 log = logging.getLogger(__name__)
 _deck_id: str = ''
 _bridge_file: str = ''
-_output_queue: Queue
+_output_queue: asyncio.Queue
 _ui: Ui_MainWindow
 _initialized: bool = False
 
@@ -47,7 +47,7 @@ def _init_required(default_value: Optional[Union[str, int]] = None) -> Callable:
     return decorator
 
 
-def init(bridge_file: str, output_queue: Queue, ui: Ui_MainWindow) -> None:
+def init(bridge_file: str, output_queue: asyncio.Queue, ui: Ui_MainWindow) -> None:
     """
     Initializes and chooses the Stream Deck to use
     """
@@ -103,14 +103,15 @@ def analyze_md_message(message: Union[str, bytes]) -> str:
     return ''
 
 
-def next_message() -> Optional[str]:
+@_init_required(default_value='')
+async def next_message() -> Optional[str]:
     """
     Gets the next message that should be sent to FoundryVTT. None is returned if it's empty.
     """
     global _output_queue  # pylint: disable=global-statement,invalid-name
     if _output_queue.empty():
         return None
-    return _output_queue.get(block=False)  # type: ignore
+    return await _output_queue.get()  # type: ignore
 
 
 @_init_required()
@@ -249,7 +250,7 @@ def load_md_buttons(page: Optional[int] = None) -> None:
         page = deck_api.get_page(_deck_id)
 
     button_states = deck_api.state[_deck_id]['buttons']
-    for button_index, button_info in button_states[page].items():
+    for button_index, button_info in button_states.get(page, {}).items():
         if 'material_deck' in button_info:
             deck_info = button_info['material_deck']
             if 'init_data' in deck_info:
@@ -272,7 +273,7 @@ def _unload_md_buttons(page: int) -> None:
         return
 
     button_states = deck_api.state[_deck_id]['buttons']
-    for button_index, button_info in button_states[page].items():
+    for button_index, button_info in button_states.get(page, {}).items():
         if 'material_deck' in button_info:
             deck_info = button_info['material_deck']
             if 'init_data' in deck_info:
@@ -361,7 +362,7 @@ def _reset_button(button_index: int, image_path: str, page: int) -> None:
 
 def _write_message(message: str) -> None:
     global _output_queue  # pylint: disable=global-statement,invalid-name
-    _output_queue.put(message)
+    _output_queue.put_nowait(message)
 
 
 def _handle_set_tile(data: dict) -> None:
