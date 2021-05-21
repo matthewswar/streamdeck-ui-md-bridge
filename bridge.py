@@ -315,7 +315,7 @@ def _create_will_display_payload(deck_info: dict, button_index: int, page: int, 
     action_settings = _get_settings_for_action(action, button_index, page)
     for setting_name, setting_value in action_settings.items():
         settings[setting_name] = setting_value
-    init_data['deviceIteration'] = page
+    init_data['deviceIteration'] = 0
     init_data['device'] = _deck_id
 
     return init_data  # type: ignore
@@ -332,7 +332,7 @@ def _create_command_payload(action: str, event: str, button_index: int, page: in
                 'row': math.floor(button_index / DECK_COLUMNS),
             },
             'settings': _get_settings_for_action(action, button_index, page),
-            'deviceIteration': page,
+            'deviceIteration': 0,
             'device': _deck_id,
         },
     }
@@ -362,7 +362,7 @@ def _reset_button(button_index: int, image_path: str, page: int) -> None:
 
 def _write_message(message: str) -> None:
     global _output_queue  # pylint: disable=global-statement,invalid-name
-    _output_queue.put_nowait(message)
+    asyncio.run_coroutine_threadsafe(_output_queue.put(message), asyncio.get_event_loop())
 
 
 def _handle_set_tile(data: dict) -> None:
@@ -387,13 +387,14 @@ def _handle_set_image(data: dict) -> None:
     image_id = payload['id']
     cache_path = _get_path_from_image_id(image_id)
     page = _to_page(data['context'])
-    if cache_path != deck_api.get_button_icon(_deck_id, page, _to_button_index(data['context'], page)) and \
-            not Path(cache_path).exists():
-        Path(Path(cache_path).parent).mkdir(parents=True, exist_ok=True)
-        with request.urlopen(payload['image']) as response:
-            with open(cache_path, 'wb') as image_file:
-                image_file.write(response.read())
-    deck_api.set_button_icon(_deck_id, page, _to_button_index(data['context'], page), cache_path)
+    if cache_path != deck_api.get_button_icon(_deck_id, page, _to_button_index(data['context'], page)):
+        if not Path(cache_path).exists():
+            Path(Path(cache_path).parent).mkdir(parents=True, exist_ok=True)
+        if not Path(cache_path).exists():
+            with request.urlopen(payload['image']) as response:
+                with open(cache_path, 'wb') as image_file:
+                    image_file.write(response.read())
+        deck_api.set_button_icon(_deck_id, page, _to_button_index(data['context'], page), cache_path)
 
 
 def _get_path_from_image_id(image_id: str) -> str:
